@@ -4,6 +4,8 @@ using namespace std;
 #pragma comment(lib, "Ws2_32.lib")
 #include <winsock2.h>
 #include <string.h>
+#include <string>
+#include <algorithm>
 #include <time.h>
 
 #define TIME_PORT	27015
@@ -93,6 +95,8 @@ void main()
 	int bytesRecv = 0;
 	char sendBuff[255];
 	char recvBuff[255];
+	bool sendBuffPrepared = false;
+
 
 	// Get client's requests and answer them.
 	// The recvfrom function receives a datagram and stores the source address.
@@ -105,6 +109,8 @@ void main()
 
 	while (true)
 	{
+		sendBuffPrepared = false;
+
 		bytesRecv = recvfrom(m_socket, recvBuff, 255, 0, &client_addr, &client_addr_len);
 		if (SOCKET_ERROR == bytesRecv)
 		{
@@ -117,29 +123,254 @@ void main()
 		recvBuff[bytesRecv] = '\0'; //add the null-terminating to make it a string
 		cout << "Time Server: Recieved: " << bytesRecv << " bytes of \"" << recvBuff << "\" message.\n";
 
-		// Answer client's request by the current time.
+		int command = atoi(recvBuff);
 
-		// Get the current time.
-		time_t timer;
-		time(&timer);
-		// Parse the current time to printable string.
-		strcpy(sendBuff, ctime(&timer));
-		sendBuff[strlen(sendBuff) - 1] = '\0'; //to remove the new-line from the created string
+		cout << "Time Server: Received command: " << command << endl;
 
-		// Sends the answer to the client, using the client address gathered
-		// by recvfrom. 
-		bytesSent = sendto(m_socket, sendBuff, (int)strlen(sendBuff), 0, (const sockaddr*)&client_addr, client_addr_len);
-		if (SOCKET_ERROR == bytesSent)
+		if (command < 1 || command > 13)
 		{
-			cout << "Time Server: Error at sendto(): " << WSAGetLastError() << endl;
-			closesocket(m_socket);
-			WSACleanup();
-			return;
+			strcpy(sendBuff, "Invalid request. Command must be an int between 1 and 13.");
+			sendBuffPrepared = true;
+		}
+		else if (command == 1)
+		{
+			//GetTime
+
+			time_t timer;
+			time(&timer);
+			// Parse the current time to printable string.
+			strcpy(sendBuff, ctime(&timer));
+			sendBuff[strlen(sendBuff) - 1] = '\0'; //to remove the new-line from the created string
+			sendBuffPrepared = true;
+
+		}
+		else if (command == 2)
+		{
+			// GetTimeWithoutDate
+
+			time_t timer;
+			time(&timer);
+			tm* timeInfo = localtime(&timer);
+			strftime(sendBuff, sizeof(sendBuff), "%H:%M:%S", timeInfo);
+			sendBuffPrepared = true;
+
+
+		}
+		else if (command == 3)
+		{
+			//GetTimeSinceEpoch
+
+			time_t timer;
+			time(&timer);
+			sprintf(sendBuff, "%ld", timer);
+			sendBuffPrepared = true;
+
+		}
+		else if (command == 4)
+		{
+			// GetClientToServerDelayEstimation
+
+			DWORD tick = GetTickCount(); //returns milliseconds since system start
+			sprintf(sendBuff, "%lu", tick); // convert to string and sending it back
+			sendBuffPrepared = true;
+		}
+		else if (command == 5)
+		{
+			// GetServerToClientDelayEstimation
+
+			DWORD tick = GetTickCount(); //returns milliseconds since system start
+			sprintf(sendBuff, "%lu", tick); // convert to string and sending it back
+			sendBuffPrepared = true;
+
+		}
+		else if (command == 6)
+		{
+			// GetTimeWithoutDateOrSeconds
+
+			time_t timer;
+			time(&timer);
+			tm* timeInfo = localtime(&timer);
+			strftime(sendBuff, sizeof(sendBuff), "%H:%M", timeInfo);
+			sendBuffPrepared = true;
+
+		}
+		else if (command == 7)
+		{
+			// GetYear
+
+			time_t timer;
+			time(&timer);
+			tm* timeInfo = localtime(&timer);
+			strftime(sendBuff, sizeof(sendBuff), "%Y", timeInfo);  // %Y = 4-digit year
+			sendBuffPrepared = true;
+
+		}
+		else if (command == 8)
+		{
+			// GetMonthAndDay
+
+			time_t timer;
+			time(&timer);
+			tm* timeInfo = localtime(&timer);
+			strftime(sendBuff, sizeof(sendBuff), "%m-%d", timeInfo); // %m = 2-digit month, %d = 2-digit day
+			sendBuffPrepared = true;
+
+
+		}
+		else if (command == 9)
+		{
+			// GetSecondsSinceBeginingOfMonth
+
+			time_t curr;
+			time(&curr);
+			tm* currentTime = localtime(&curr);
+
+			// Init data for start of the month
+			tm beginningOfMonth = *currentTime;
+			beginningOfMonth.tm_mday = 1;
+			beginningOfMonth.tm_hour = 0;
+			beginningOfMonth.tm_min = 0;
+			beginningOfMonth.tm_sec = 0;
+
+			time_t startOfMonth = mktime(&beginningOfMonth);
+
+			// Calculate diff in seconds
+			double secondsSinceMonthStart = difftime(curr, startOfMonth);
+			sprintf(sendBuff, "%.0f", secondsSinceMonthStart);  // %.0f to avoid deci
+			sendBuffPrepared = true;
+
+		}
+		else if (command == 10)
+		{
+			//GetWeekOfYear
+
+			time_t timer;
+			time(&timer);
+			tm* timeInfo = localtime(&timer);
+
+			// %U = week number, when we choose sunday  (iff needed we can use %W for monday)
+			strftime(sendBuff, sizeof(sendBuff), "%U", timeInfo);
+			sendBuffPrepared = true;
+
 		}
 
-		cout << "Time Server: Sent: " << bytesSent << "\\" << strlen(sendBuff) << " bytes of \"" << sendBuff << "\" message.\n";
-	}
+		else if (command == 11)
+		{
+			// GetDayLightSavings
 
+			time_t timer;
+			time(&timer);
+			tm* timeInfo = localtime(&timer);
+
+			if (timeInfo->tm_isdst > 0)
+				strcpy(sendBuff, "1");
+			else if (timeInfo->tm_isdst == 0)
+				strcpy(sendBuff, "0");
+			else
+				strcpy(sendBuff, "Houston we have an error");
+
+			sendBuffPrepared = true;
+
+		}
+
+		else if (command == 12)
+		{
+			// GetTimeWithoutDateInCity
+
+			string city = string(recvBuff + 2);  // skip '12'
+
+			// Convert to lowercase for matching
+			string cityLower = city;
+			transform(cityLower.begin(), cityLower.end(), cityLower.begin(), ::tolower);
+
+			time_t rawtime;
+			time(&rawtime);
+			tm* utcTime = gmtime(&rawtime);
+
+			int offset = 0;
+			bool knownCity = true;
+			if (cityLower == "doha")
+				offset = 3;
+			else if (cityLower == "prague")
+				offset = 1;
+			else if (cityLower == "new york")
+				offset = -5;
+			else if (cityLower == "berlin")
+				offset = 1;
+			else
+				knownCity = false;
+
+			if (knownCity)
+			{
+				int hour = (utcTime->tm_hour + offset + 24) % 24;
+				sprintf(sendBuff, "%02d:%02d:%02d", hour, utcTime->tm_min, utcTime->tm_sec);
+			}
+			else
+			{
+				sprintf(sendBuff, "City '%s' not supported. Current UTC time: %02d:%02d:%02d",
+					city.c_str(), utcTime->tm_hour, utcTime->tm_min, utcTime->tm_sec);
+			}
+
+			sendBuffPrepared = true;
+
+
+		}
+
+		else if (command == 13)
+		{
+			// MeasureTimeLap
+
+			static bool isMeasuring = false;
+			static time_t startTime = 0;
+			static time_t expirationTime = 0;
+
+
+			time_t currentTime;
+			time(&currentTime);
+
+			if (!isMeasuring || currentTime > expirationTime)
+			{
+				// Start new measurement
+				isMeasuring = true;
+				startTime = currentTime;
+				expirationTime = currentTime + 180; // 3 minutes from now
+
+				strcpy(sendBuff, "Measurement of time lap started.");
+				sendBuffPrepared = true;
+			}
+			else
+			{
+				// Measurement in progress and still valid
+				double elapsed = difftime(currentTime, startTime);
+
+				sprintf(sendBuff, "Time Lap lasted %.0f seconds.", elapsed);
+				sendBuffPrepared = true;
+
+				// Reset measurement
+				isMeasuring = false;
+				startTime = 0;
+				expirationTime = 0;
+			}
+		}
+
+
+		if (sendBuffPrepared)
+		{
+
+			// Sends the answer to the client, using the client address gathered
+			// by recvfrom. 
+			bytesSent = sendto(m_socket, sendBuff, (int)strlen(sendBuff), 0, (const sockaddr*)&client_addr, client_addr_len);
+			if (SOCKET_ERROR == bytesSent)
+			{
+				cout << "Time Server: Error at sendto(): " << WSAGetLastError() << endl;
+				closesocket(m_socket);
+				WSACleanup();
+				return;
+			}
+
+			cout << "Time Server: Sent: " << bytesSent << "\\" << strlen(sendBuff) << " bytes of \"" << sendBuff << "\" message.\n";
+		}
+	}
 	// Closing connections and Winsock.
 	cout << "Time Server: Closing Connection.\n";
 	closesocket(m_socket);
